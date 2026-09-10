@@ -1,66 +1,160 @@
-## Foundry
+# Ageis! ENSv2 × Uniswap v4 Hook Governance
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+An ENSv2-powered governance and permission layer for Uniswap v4 pools.
 
-Foundry consists of:
+## Overview
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+This project uses ENSv2 permissions as the authorization layer for a Uniswap v4 hook.
 
-## Documentation
+Each governed Uniswap v4 pool is associated with an ENSv2 resource. The hook uses that resource to determine which addresses are authorized to perform governance actions such as pausing or unpausing the pool.
 
-https://book.getfoundry.sh/
+The architecture separates three concerns:
 
-## Usage
 
-### Build
+ENSv2
+  │
+  │ identity + permissions
+  ▼
+HookGovernance
+  │
+  │ enforcement
+  ▼
+Uniswap v4 PoolManager
+  │
+  ▼
+Governed Pool
 
-```shell
-$ forge build
-```
 
-### Test
+## Why this matters
 
-```shell
-$ forge test
-```
+Uniswap v4 hooks allow developers to introduce custom behavior around swaps and liquidity operations.
 
-### Format
+This project explores how ENSv2 can provide a reusable, on-chain governance layer for those hooks rather than relying entirely on a hardcoded operator address.
 
-```shell
-$ forge fmt
-```
+An ENSv2 role can be granted or revoked independently of the pool and hook deployment, allowing operator permissions to evolve over time.
 
-### Gas Snapshots
+## Current Progress
 
-```shell
-$ forge snapshot
-```
+### Completed
 
-### Anvil
+* ✅ ENSv2 name registered on Sepolia
+* ✅ ENSv2 stable resource created
+* ✅ `HookGovernance` contract implemented
+* ✅ ENSv2 permission checks integrated into the hook
+* ✅ Hook deployed
+* ✅ Pool-specific governance architecture implemented
+* ✅ Local governance tests implemented
 
-```shell
-$ anvil
-```
+### In Progress
 
-### Deploy
+The next integration milestone is connecting the deployed hook to a real Uniswap v4 pool:
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
 
-### Cast
+Create PoolKey
+      ↓
+Initialize v4 pool
+      ↓
+Calculate PoolId
+      ↓
+configurePool(PoolId, ENS_RESOURCE)
+      ↓
+Grant ENS operator role
+      ↓
+Add liquidity
+      ↓
+Execute swap
+      ↓
+Pause pool
+      ↓
+Verify swap is blocked
 
-```shell
-$ cast <subcommand>
-```
 
-### Help
+## Core Architecture
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+A single `HookGovernance` contract can govern multiple Uniswap v4 pools.
+
+Each pool is mapped to its own ENSv2 resource:
+
+
+HookGovernance
+       │
+       ├── PoolId A → ENS Resource A
+       │
+       ├── PoolId B → ENS Resource B
+       │
+       └── PoolId C → ENS Resource C
+
+
+This means different pools using the same hook can have independent operators and governance permissions.
+
+## Governance Flow
+
+
+ENSv2 Name
+     ↓
+ENSv2 Resource
+     ↓
+Operator Role
+     ↓
+HookGovernance
+     ↓
+PoolId
+     ↓
+Uniswap v4 Pool
+
+
+## Planned Demo
+
+The final demo will show:
+
+
+Admin
+  ↓
+grants ENS role
+  ↓
+Operator
+  ↓
+pauses Uniswap v4 pool
+  ↓
+swap fails
+
+
+Then:
+
+
+Admin
+  ↓
+revokes old operator
+  ↓
+grants new operator
+  ↓
+new operator unpauses pool
+  ↓
+swap succeeds
+
+The goal is to demonstrate that pool governance can change through ENSv2 permissions without redeploying the Uniswap pool or governance hook.
+
+## Network
+
+Current development and deployment target:
+
+**Ethereum Sepolia**
+
+## Tech Stack
+
+* Solidity
+* Foundry
+* ENSv2
+* ENSv2 Permissioned Registry
+* Uniswap v4
+* Uniswap v4 Hooks
+* Ethereum Sepolia
+
+Frontend development will use React/Next.js with an Ethereum wallet integration.
+
+## Development Status
+
+**Hackathon project currently under active development.**
+
+The smart-contract governance layer and initial deployments are complete. Uniswap v4 pool integration and the governance frontend are currently being built.
+
