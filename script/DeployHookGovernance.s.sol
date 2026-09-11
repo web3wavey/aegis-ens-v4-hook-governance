@@ -19,17 +19,16 @@ contract DeployHookGovernance is Script {
     // Uniswap v4 PoolManager - Ethereum Sepolia.
     address internal constant SEPOLIA_POOL_MANAGER = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
 
-    // ENSv2 Beta ETHRegistry - Ethereum Sepolia.
-    address internal constant ENSV2_ETH_REGISTRY = 0xBDC85dD5b15D7ecb354cd7cb6f2c50b4f2c4F0E2;
-
     function run() external returns (HookGovernance hook) {
+        address ensRegistry = vm.envAddress("ETH_REGISTRY");
+
         address configurator = vm.envAddress("POOL_CONFIGURATOR");
 
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG) | uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG)
             | uint160(Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
         bytes memory constructorArgs =
-            abi.encode(IPoolManager(SEPOLIA_POOL_MANAGER), IPermissionedRegistry(ENSV2_ETH_REGISTRY), configurator);
+            abi.encode(IPoolManager(SEPOLIA_POOL_MANAGER), IPermissionedRegistry(ensRegistry), configurator);
 
         (address predictedHookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(HookGovernance).creationCode, constructorArgs);
@@ -44,7 +43,7 @@ contract DeployHookGovernance is Script {
         vm.startBroadcast();
 
         hook = new HookGovernance{salt: salt}(
-            IPoolManager(SEPOLIA_POOL_MANAGER), IPermissionedRegistry(ENSV2_ETH_REGISTRY), configurator
+            IPoolManager(SEPOLIA_POOL_MANAGER), IPermissionedRegistry(ensRegistry), configurator
         );
 
         vm.stopBroadcast();
@@ -54,5 +53,7 @@ contract DeployHookGovernance is Script {
         require((uint160(address(hook)) & uint160(Hooks.ALL_HOOK_MASK)) == flags, "Invalid hook permissions");
 
         console2.log("HookGovernance deployed:", address(hook));
+
+        console2.log("ENS registry:", ensRegistry);
     }
 }
