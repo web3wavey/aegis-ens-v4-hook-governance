@@ -8,8 +8,7 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
-
-import {IPermissionedRegistry} from "@ensdomains/contracts-v2/registry/interfaces/IPermissionedRegistry.sol";
+import {IOperatorRoleManager} from "./interfaces/IOperatorRoleManager.sol";
 
 /// @title HookGovernance
 /// @notice ENSv2-powered governance and permissions for multiple Uniswap v4 pools.
@@ -26,22 +25,9 @@ contract HookGovernance is IHooks {
     //                           STATE
     // =============================================================
 
-    /// @notice ENSv2 Permissioned Registry used for authorization.
-    IPermissionedRegistry public immutable ensRegistry;
-
-    /// @notice Uniswap v4 PoolManager this hook belongs to.
     IPoolManager public immutable poolManager;
-
+    IOperatorRoleManager public immutable operatorRoleManager;
     address public immutable poolConfigurator;
-
-    /// @notice Application-specific operator role.
-    ///
-    /// Bit 24 is owned by this application.
-    /// ENSv2 stores and manages the assignment of this role.
-
-    uint256 public constant ROLE_OPERATOR = 1 << 24;
-
-    /// @notice Configuration for an individual Uniswap v4 pool.
 
     struct PoolConfig {
         /// @notice ENSv2 resource governing this pool.
@@ -69,6 +55,7 @@ contract HookGovernance is IHooks {
     error PoolIsPaused();
     error OnlyPoolConfigurator();
     error InvalidPoolConfigurator();
+    error InvalidOperatorRoleManager();
 
     // =============================================================
     //                            EVENTS
@@ -76,21 +63,32 @@ contract HookGovernance is IHooks {
 
     event PoolConfigured(PoolId indexed poolId, uint256 indexed ensResource);
 
-    event PoolPaused(PoolId indexed poolId, address indexed operator);
+    event PoolPaused(
+        PoolId indexed poolId, address indexed operator, address indexed identityRegistry, uint256 identityResource
+    );
 
-    event PoolUnpaused(PoolId indexed poolId, address indexed operator);
+    event PoolUnpaused(
+        PoolId indexed poolId, address indexed operator, address indexed identityRegistry, uint256 identityResource
+    );
 
     // =============================================================
     //                         CONSTRUCTOR
     // =============================================================
 
-    constructor(IPoolManager _poolManager, IPermissionedRegistry _ensRegistry, address _poolConfigurator) {
+    constructor(IPoolManager _poolManager, IOperatorRoleManager _operatorRoleManager, address _poolConfigurator) {
+        if (_poolConfigurator == address(0)) {
+            revert InvalidPoolConfigurator();
+        }
+        if (address(_operatorRoleManager) == address(0)) {
+            revert InvalidOperatorRoleManager();
+        }
+
         if (_poolConfigurator == address(0)) {
             revert InvalidPoolConfigurator();
         }
 
         poolManager = _poolManager;
-        ensRegistry = _ensRegistry;
+        operatorRoleManager = _operatorRoleManager;
         poolConfigurator = _poolConfigurator;
 
         Hooks.validateHookPermissions(
@@ -143,11 +141,6 @@ contract HookGovernance is IHooks {
     // =============================================================
 
     /// @notice Check whether an account is an operator for a pool.
-    ///
-    /// ENSv2 determines whether the account possesses ROLE_OPERATOR
-    /// for the resource associated with this pool.
-    ///
-    /// ENSv2's hasRoles() also respects ROOT_RESOURCE semantics.
 
     function isOperator(PoolId poolId, address account) public view returns (bool) {
         PoolConfig memory config = poolConfigs[poolId];
@@ -156,12 +149,26 @@ contract HookGovernance is IHooks {
             return false;
         }
 
-        return ensRegistry.hasRoles(config.ensResource, ROLE_OPERATOR, account);
+        return operatorRoleManager.isOperator(config.ensResource, account);
     }
 
     /// @notice Require msg.sender to be an operator for a pool.
-    function _requireOperator(PoolId poolId, address account) internal view {
-        if (!isOperator(poolId, account)) {
+    function _requireOperator(PoolId poolId, address account)
+        internal
+        view
+        returns (address identityRegistry, uint256 identityResource)
+    {
+        PoolConfig memory config = poolConfigs[poolId];
+
+        if (!config.configured) {
+            revert PoolNotConfigured();
+        }
+
+        bool active;
+
+        (identityRegistry, identityResource, active) = operatorRoleManager.operatorIdentity(config.ensResource, account);
+
+        if (!active) {
             revert Unauthorized();
         }
     }
@@ -181,11 +188,11 @@ contract HookGovernance is IHooks {
             revert PoolNotConfigured();
         }
 
-        _requireOperator(poolId, msg.sender);
+        (address identityRegistry, uint256 identityResource) = _requireOperator(poolId, msg.sender);
 
         config.paused = true;
 
-        emit PoolPaused(poolId, msg.sender);
+        emit PoolPaused(poolId, msg.sender, identityRegistry, identityResource);
     }
 
     /// @notice Unpause swaps for a specific pool.
@@ -199,11 +206,11 @@ contract HookGovernance is IHooks {
             revert PoolNotConfigured();
         }
 
-        _requireOperator(poolId, msg.sender);
+        (address identityRegistry, uint256 identityResource) = _requireOperator(poolId, msg.sender);
 
         config.paused = false;
 
-        emit PoolUnpaused(poolId, msg.sender);
+        emit PoolUnpaused(poolId, msg.sender, identityRegistry, identityResource);
     }
 
     // =============================================================
