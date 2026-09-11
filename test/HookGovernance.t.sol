@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {HookGovernance} from "../src/HookGovernance.sol";
+import {IOperatorRoleManager} from "../src/interfaces/IOperatorRoleManager.sol";
 
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
@@ -12,32 +13,45 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
-
 import {HookMiner} from "v4-periphery/test/shared/HookMiner.sol";
-
-import {IPermissionedRegistry} from "@ensdomains/contracts-v2/registry/interfaces/IPermissionedRegistry.sol";
 
 // =============================================================
 //                    MOCK ENSV2 REGISTRY
 // =============================================================
 
-contract MockPermissionedRegistry {
-    mapping(uint256 => mapping(address => uint256)) internal _roles;
-
-    function setRole(uint256 resource, address account, uint256 roleBitmap) external {
-        _roles[resource][account] = roleBitmap;
+contract MockOperatorRoleManager is IOperatorRoleManager {
+    struct Assignment {
+        address identityRegistry;
+        uint256 identityResource;
+        bool active;
     }
 
-    function grantRole(uint256 resource, address account, uint256 roleBitmap) external {
-        _roles[resource][account] |= roleBitmap;
+    mapping(uint256 => mapping(address => Assignment)) internal _operators;
+
+    function setOperator(
+        uint256 governanceResource,
+        address account,
+        address identityRegistry,
+        uint256 identityResource,
+        bool active
+    ) external {
+        _operators[governanceResource][account] = Assignment({
+            identityRegistry: identityRegistry, identityResource: identityResource, active: active
+        });
     }
 
-    function revokeRole(uint256 resource, address account, uint256 roleBitmap) external {
-        _roles[resource][account] &= ~roleBitmap;
+    function isOperator(uint256 governanceResource, address account) external view returns (bool) {
+        return _operators[governanceResource][account].active;
     }
 
-    function hasRoles(uint256 resource, uint256 roleBitmap, address account) external view returns (bool) {
-        return (_roles[resource][account] & roleBitmap) == roleBitmap;
+    function operatorIdentity(uint256 governanceResource, address account)
+        external
+        view
+        returns (address identityRegistry, uint256 identityResource, bool active)
+    {
+        Assignment memory assignment = _operators[governanceResource][account];
+
+        return (assignment.identityRegistry, assignment.identityResource, assignment.active);
     }
 }
 
@@ -49,7 +63,7 @@ contract HookGovernanceTest is Test {
     using PoolIdLibrary for PoolKey;
 
     HookGovernance internal hook;
-    MockPermissionedRegistry internal ens;
+    MockOperatorRoleManager internal operatorManager;
 
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
@@ -61,7 +75,7 @@ contract HookGovernanceTest is Test {
     PoolId internal poolB;
 
     function setUp() public {
-        ens = new MockPermissionedRegistry();
+        operatorManager = new MockOperatorRoleManager();
 
         address mockPoolManager = address(0x1234);
 
@@ -71,12 +85,12 @@ contract HookGovernanceTest is Test {
             | uint160(Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
         bytes memory constructorArgs =
-            abi.encode(IPoolManager(mockPoolManager), IPermissionedRegistry(address(ens)), address(this));
+            abi.encode(IPoolManager(mockPoolManager), IOperatorRoleManager(address(operatorManager)), address(this));
 
         (, bytes32 salt) = HookMiner.find(address(this), flags, type(HookGovernance).creationCode, constructorArgs);
 
         hook = new HookGovernance{salt: salt}(
-            IPoolManager(mockPoolManager), IPermissionedRegistry(address(ens)), address(this)
+            IPoolManager(mockPoolManager), IOperatorRoleManager(address(operatorManager)), address(this)
         );
 
         assertEq(uint160(address(hook)) & mask, flags);
@@ -87,7 +101,13 @@ contract HookGovernanceTest is Test {
         hook.configurePool(poolA, RESOURCE_A);
         hook.configurePool(poolB, RESOURCE_B);
 
-        ens.setRole(RESOURCE_A, alice, hook.ROLE_OPERATOR());
+        operatorManager.setOperator(
+            RESOURCE_A,
+            alice,
+            address(0xA11CE1D), // dummy values to be swapped with ENS registry and resource
+            101, // as above
+            true
+        );
     }
 
     // =============================================================
@@ -302,10 +322,10 @@ contract HookGovernanceTest is Test {
         assertTrue(hook.isPaused(poolA));
 
         // Revoke Alice's ENSv2 capability.
-        ens.revokeRole(RESOURCE_A, alice, hook.ROLE_OPERATOR());
+        operatorManager.setOperator(RESOURCE_A, alice, address(0xA11CE1D), 101, false);
 
         // Grant Bob the same ENSv2 capability.
-        ens.grantRole(RESOURCE_A, bob, hook.ROLE_OPERATOR());
+        operatorManager.setOperator(RESOURCE_A, bob, address(0xB0B1D), 102, true);
 
         // Verify the governance authority moved.
         assertFalse(hook.isOperator(poolA, alice));
