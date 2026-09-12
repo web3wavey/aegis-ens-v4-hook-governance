@@ -356,6 +356,41 @@ contract HookGovernanceTest is Test {
         hook.configurePool(newPool, uint256(123));
     }
 
+    function test_multipleOperatorsCanGovernSamePool() public {
+        address charlie = address(0xCA11E);
+
+        // Alice is already active from setUp().
+
+        // Add Bob as a second active operator.
+        operatorManager.setOperator(RESOURCE_A, bob, address(0xB0B1D), 102, true);
+
+        // Charlie has an identity, but is NOT active.
+        operatorManager.setOperator(RESOURCE_A, charlie, address(0xCA11E1D), 103, false);
+
+        assertTrue(hook.isOperator(poolA, alice));
+        assertTrue(hook.isOperator(poolA, bob));
+        assertFalse(hook.isOperator(poolA, charlie));
+
+        // Alice pauses the pool.
+        vm.prank(alice);
+        hook.pausePool(poolA);
+
+        assertTrue(hook.isPaused(poolA));
+
+        // Bob can govern the exact same pool.
+        vm.prank(bob);
+        hook.unpausePool(poolA);
+
+        assertFalse(hook.isPaused(poolA));
+
+        // Charlie cannot govern it.
+        vm.prank(charlie);
+        vm.expectRevert(HookGovernance.Unauthorized.selector);
+        hook.pausePool(poolA);
+
+        assertFalse(hook.isPaused(poolA));
+    }
+
     // =============================================================
     //                         HELPERS
     // =============================================================

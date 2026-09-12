@@ -32,7 +32,7 @@ contract DeployHookGovernance is Script {
 
         operatorRoleManager = new OperatorRoleManager(IPermissionedRegistry(ensRegistry));
 
-        vm.startBroadcast();
+        vm.stopBroadcast();
 
         console2.log("OperatorRoleManager:", address(operatorRoleManager));
 
@@ -42,7 +42,7 @@ contract DeployHookGovernance is Script {
             | uint160(Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
         bytes memory constructorArgs =
-            abi.encode(IPoolManager(SEPOLIA_POOL_MANAGER), IOperatorRoleManager(ensRegistry), configurator);
+            abi.encode(IPoolManager(SEPOLIA_POOL_MANAGER), IOperatorRoleManager(address(operatorRoleManager)), configurator);
 
         (address predictedHookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(HookGovernance).creationCode, constructorArgs);
