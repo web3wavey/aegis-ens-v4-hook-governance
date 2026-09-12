@@ -41,8 +41,9 @@ contract DeployHookGovernance is Script {
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG) | uint160(Hooks.BEFORE_ADD_LIQUIDITY_FLAG)
             | uint160(Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG);
 
-        bytes memory constructorArgs =
-            abi.encode(IPoolManager(SEPOLIA_POOL_MANAGER), IOperatorRoleManager(address(operatorRoleManager)), configurator);
+        bytes memory constructorArgs = abi.encode(
+            IPoolManager(SEPOLIA_POOL_MANAGER), IOperatorRoleManager(address(operatorRoleManager)), configurator
+        );
 
         (address predictedHookAddress, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(HookGovernance).creationCode, constructorArgs);
