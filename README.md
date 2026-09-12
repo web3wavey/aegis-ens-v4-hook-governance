@@ -1,64 +1,328 @@
-# Ageis! ENSv2 × Uniswap v4 Hook Governance
+# Aegis — ENSv2 × Uniswap v4 Pool Governance
 
-An ENSv2-powered governance and permission layer for Uniswap v4 pools.
+**ENS-powered multi-operator access control and governance for Uniswap v4 pools.**
 
-## Overview
+Aegis separates **identity, authorization, and pool enforcement** so protocols can delegate Uniswap v4 operations without handing over ultimate governance control.
 
-This project uses ENSv2 permissions as the authorization layer for a Uniswap v4 hook.
+> **Identity is not authority.**
 
-Each governed Uniswap v4 pool is associated with an ENSv2 resource. The hook uses that resource to determine which addresses are authorized to perform governance actions such as pausing or unpausing the pool.
+An address can have a valid ENS operator identity while still having zero permission to operate a pool.
 
-The architecture separates three concerns:
+---
 
+## The Problem
 
+Uniswap v4 hooks enable powerful custom pool behaviour, but protocols still need to answer:
+
+**Who is allowed to control the hook?**
+
+Hardcoding one owner or operator creates several problems:
+
+* operational authority becomes tied to individual wallets;
+* changing operators can require additional contract-specific administration;
+* multiple operators are harder to represent clearly;
+* identity and permissions become tightly coupled;
+* day-to-day operators may receive more authority than they need.
+
+Aegis introduces a hierarchical governance model built around ENSv2 identities.
+
+---
+
+## How Aegis Works
+
+Aegis separates the system into three layers:
+
+```text
 ENSv2
   │
-  │ identity + permissions
+  │ identity + governance hierarchy
+  ▼
+OperatorRoleManager
+  │
+  │ application authorization
   ▼
 HookGovernance
   │
-  │ enforcement
+  │ on-chain pool enforcement
   ▼
 Uniswap v4 PoolManager
   │
   ▼
 Governed Pool
+```
 
+### Example hierarchy
 
-## Why this matters
+```text
+project.eth
+│
+│  ULTIMATE GOVERNANCE
+│
+└── operator.project.eth
+      │
+      │  OPERATOR ADMIN
+      │
+      ├── alice.operator.project.eth  → ACTIVE
+      ├── bob.operator.project.eth    → ACTIVE
+      └── charlie.operator.project.eth → INACTIVE
+```
 
-Uniswap v4 hooks allow developers to introduce custom behavior around swaps and liquidity operations.
+Alice and Bob may operate the same pool simultaneously.
 
-This project explores how ENSv2 can provide a reusable, on-chain governance layer for those hooks rather than relying entirely on a hardcoded operator address.
+Charlie can have a valid ENS identity while having **no pool authority**.
 
-An ENSv2 role can be granted or revoked independently of the pool and hook deployment, allowing operator permissions to evolve over time.
+---
 
-## Current Progress
+## Governance Model
 
-### Completed
+Aegis separates project governance from operational access.
 
-* ✅ ENSv2 name registered on Sepolia
-* ✅ ENSv2 stable resource created
-* ✅ `HookGovernance` contract implemented
-* ✅ ENSv2 permission checks integrated into the hook
-* ✅ Hook deployed
-* ✅ Pool-specific governance architecture implemented
-* ✅ Local governance tests implemented
+| Identity                       | Operate Pool  | Add / Remove Operators   | Ultimate Control  |
+| ------------------------------ | -----------:  | ---------------------:   | ---------------:  |
+| `project.eth`                  |     Optional  |                       ✅ |                ✅ |
+| `operator.project.eth`         |     Optional  |                       ✅ |                ❌ |
+| `alice.operator.project.eth`   |            ✅ |                       ❌ |                ❌ |
+| `bob.operator.project.eth`     |            ✅ |                       ❌ |                ❌ |
+| `charlie.operator.project.eth` |            ❌ |                       ❌ |                ❌ |
 
-### In Progress
+Individual pool operators cannot:
 
-The next integration milestone is connecting the deployed hook to a real Uniswap v4 pool:
+* grant another wallet access;
+* revoke another operator;
+* replace the operator administrator;
+* change the governance resource;
+* change the pool binding;
+* take ownership of parent governance.
 
+The parent ENS owner remains the ultimate authority.
 
+---
+
+## Core Contracts
+
+### `OperatorRoleManager.sol`
+
+Manages application-level pool authorization while retaining ENSv2 identities.
+
+Each operator assignment records:
+
+```solidity
+struct OperatorAssignment {
+    address identityRegistry;
+    uint256 identityResource;
+    bool active;
+}
+```
+
+Operators are scoped to an ENS governance resource:
+
+```text
+ENS governance resource
+        │
+        ├── Alice → active
+        ├── Bob → active
+        └── Charlie → inactive
+```
+
+Only the parent ENS owner or delegated operator administrator can add or remove operators.
+
+This deliberately separates:
+
+```text
+ENS identity ≠ pool permission
+```
+
+---
+
+### `HookGovernance.sol`
+
+A Uniswap v4 hook that enforces operator permissions for governed pools.
+
+Each Uniswap v4 `PoolId` is associated with its ENS governance resource:
+
+```text
+PoolId
+  │
+  └── ENS Resource
+```
+
+Before allowing protected governance actions, `HookGovernance` asks the role manager whether the caller is an active operator.
+
+Conceptually:
+
+```solidity
+operatorRoleManager.isOperator(
+    governanceResource,
+    account
+);
+```
+
+Authorized operators can currently:
+
+```text
+pausePool()
+unpausePool()
+```
+
+Unauthorized wallets revert.
+
+---
+
+## Uniswap v4 Integration
+
+Aegis integrates directly with the Uniswap v4 hook architecture.
+
+The project uses Uniswap v4 components including:
+
+```text
+IPoolManager
+IHooks
+Hooks
+PoolKey
+PoolId
+PoolIdLibrary
+BalanceDelta
+BeforeSwapDelta
+```
+
+`HookGovernance` implements the `IHooks` interface and declares its hook permissions using Uniswap's hook permission flags.
+
+The current hook supports callbacks around:
+
+```text
+beforeSwap
+beforeAddLiquidity
+beforeRemoveLiquidity
+```
+
+Pool-specific governance state is stored against each `PoolId`, allowing one `HookGovernance` deployment to support multiple independently governed pools.
+
+```text
+HookGovernance
+      │
+      ├── PoolId A → ENS Resource A
+      ├── PoolId B → ENS Resource B
+      └── PoolId C → ENS Resource C
+```
+
+---
+
+## ENSv2 Integration
+
+ENSv2 provides the identity and governance hierarchy.
+
+Aegis uses ENS resources to represent:
+
+```text
+project governance
+operator administration
+individual operator identities
+```
+
+The `OperatorRoleManager` integrates with the ENSv2 `IPermissionedRegistry`.
+
+The current owner of the parent ENS governance resource acts as the root authority for that project's operator configuration.
+
+This means operational authority can change without changing the identity of the governed Uniswap pool.
+
+---
+
+## Operator Audit Trail
+
+Governance actions preserve both the operator wallet and ENS identity resource.
+
+For example, when Alice pauses a pool:
+
+```text
+PoolPaused
+
+Pool:
+0xabcd...
+
+Operator wallet:
+0xA11CE...
+
+ENS identity:
+alice.operator.project.eth
+```
+
+The emitted event records:
+
+```text
+PoolId
+operator wallet
+identity registry
+identity resource
+```
+
+This allows the frontend to show **who performed an action and under which ENS identity**.
+
+---
+
+# Current Hackathon Status
+
+## Completed
+
+```text
+ENSv2 integration
+├── ENSv2 governance name                  ✅
+├── Stable ENS resource                    ✅
+├── Parent governance authority            ✅
+└── ENS identity validation                ✅
+
+Operator governance
+├── OperatorRoleManager                    ✅
+├── Parent owner override                  ✅
+├── Delegated operator admin               ✅
+├── Add operator                           ✅
+├── Remove operator                        ✅
+└── ENS identity / permission separation   ✅
+
+Uniswap v4 hook
+├── HookGovernance                         ✅
+├── Pool-specific configuration            ✅
+├── Operator authorization                 ✅
+├── Pause / unpause                        ✅
+├── Operator identity events               ✅
+└── Hook deployed                          ✅
+```
+
+---
+
+# Current Development Checkpoint
+
+The project is now at the **Uniswap v4 pool stage**.
+
+The next checkpoint is connecting a real test pool to the deployed governance system:
+
+```text
+Native ETH / Hackathon MockUSDC
+              │
+              ▼
+      Uniswap v4 PoolManager
+              │
+              ▼
+        HookGovernance
+              │
+              ▼
+            PoolId
+              │
+              ▼
+         ENS_RESOURCE
+```
+
+### Current task
+
+```text
 Create PoolKey
       ↓
-Initialize v4 pool
+Initialize Native ETH / MockUSDC pool
       ↓
 Calculate PoolId
       ↓
 configurePool(PoolId, ENS_RESOURCE)
       ↓
-Grant ENS operator role
+Connect active ENS operators
       ↓
 Add liquidity
       ↓
@@ -66,95 +330,204 @@ Execute swap
       ↓
 Pause pool
       ↓
-Verify swap is blocked
+Attempt swap
+      ↓
+Hook blocks swap
+      ↓
+Unpause pool
+      ↓
+Swap succeeds
+```
 
+This will complete the first full end-to-end flow from:
 
-## Core Architecture
+```text
+ENS identity
+      ↓
+operator authorization
+      ↓
+Uniswap v4 hook
+      ↓
+real pool behavior
+```
 
-A single `HookGovernance` contract can govern multiple Uniswap v4 pools.
+---
 
-Each pool is mapped to its own ENSv2 resource:
+# Demo Pool
 
+The first demonstration pool uses:
 
-HookGovernance
-       │
-       ├── PoolId A → ENS Resource A
-       │
-       ├── PoolId B → ENS Resource B
-       │
-       └── PoolId C → ENS Resource C
+```text
+Native ETH
+   +
+Hackathon MockUSDC
+```
 
+with the deployed `HookGovernance` attached through its `PoolKey`.
 
-This means different pools using the same hook can have independent operators and governance permissions.
+The expected relationship is:
 
-## Governance Flow
+```text
+PoolKey
+  │
+  ├── currency0 / currency1
+  ├── fee
+  ├── tickSpacing
+  └── HookGovernance
+          │
+          ▼
+        PoolId
+          │
+          ▼
+     ENS_RESOURCE
+          │
+          ▼
+  OperatorRoleManager
+          │
+     ┌────┴────┐
+     │         │
+   Alice      Bob
+   ACTIVE     ACTIVE
+```
 
+---
 
-ENSv2 Name
-     ↓
-ENSv2 Resource
-     ↓
-Operator Role
-     ↓
-HookGovernance
-     ↓
-PoolId
-     ↓
-Uniswap v4 Pool
+# Example Use Cases
 
+### DAO Treasury Operations
 
-## Planned Demo
+A DAO can allow several treasury contributors to operate liquidity pools without giving each contributor control of the DAO's root governance identity.
 
-The final demo will show:
+### DeFi Protocol Operations
 
+A protocol can delegate day-to-day pool operations to an operations team while retaining emergency control at the parent ENS level.
 
-Admin
-  ↓
-grants ENS role
-  ↓
-Operator
-  ↓
-pauses Uniswap v4 pool
-  ↓
-swap fails
+### Security Teams
 
+Authorized security operators can pause affected pools during an incident without receiving permission to modify the protocol's governance hierarchy.
+
+### Liquidity Management Teams
+
+Multiple liquidity managers can operate the same pool simultaneously using individually identifiable ENS identities.
+
+### Contributor Identity
+
+Projects can issue ENS subnames to contributors without automatically granting protocol permissions.
+
+```text
+alice.operator.project.eth     ACTIVE
+bob.operator.project.eth       ACTIVE
+charlie.operator.project.eth   INACTIVE
+```
+
+---
+
+# Planned Demo
+
+The final demo will show three different roles:
+
+```text
+Project Admin
+     │
+     └── ultimate ENS governance
+
+Operator Admin
+     │
+     └── adds / removes operators
+
+Pool Operator
+     │
+     └── operates governed pools
+```
+
+Example flow:
+
+```text
+Project Admin
+      ↓
+designates Operator Admin
+      ↓
+Operator Admin adds Alice
+      ↓
+alice.operator.project.eth
+      ↓
+Alice pauses ETH / MockUSDC
+      ↓
+swap attempt
+      ↓
+HookGovernance reverts
+```
 
 Then:
 
-
-Admin
-  ↓
-revokes old operator
-  ↓
-grants new operator
-  ↓
-new operator unpauses pool
-  ↓
+```text
+Operator Admin removes Alice
+      ↓
+adds Bob
+      ↓
+bob.operator.project.eth
+      ↓
+Bob unpauses pool
+      ↓
 swap succeeds
+```
 
-The goal is to demonstrate that pool governance can change through ENSv2 permissions without redeploying the Uniswap pool or governance hook.
+The demo proves that operational authority can change without redeploying the Uniswap pool or governance hook.
 
-## Network
+---
 
-Current development and deployment target:
+## Project Structure
 
-**Ethereum Sepolia**
+```text
+src/
+├── HookGovernance.sol
+├── OperatorRoleManager.sol
+└── interfaces/
+    └── IOperatorRoleManager.sol
+
+script/
+├── deployment and ENS setup scripts
+└── Uniswap pool setup scripts
+
+test/
+└── Foundry unit and integration tests
+```
+
+---
 
 ## Tech Stack
 
-* Solidity
+* Solidity `0.8.24`
 * Foundry
 * ENSv2
-* ENSv2 Permissioned Registry
+* ENSv2 `IPermissionedRegistry`
 * Uniswap v4
+* Uniswap v4 `PoolManager`
 * Uniswap v4 Hooks
 * Ethereum Sepolia
+* React / Next.js frontend planned
 
-Frontend development will use React/Next.js with an Ethereum wallet integration.
+---
 
-## Development Status
+## Design Principle
 
-**Hackathon project currently under active development.**
+Aegis is built around one key principle:
 
-The smart-contract governance layer and initial deployments are complete. Uniswap v4 pool integration and the governance frontend are currently being built.
+> **Identity is not authority.**
+
+ENS tells the system **who an operator is**.
+
+`OperatorRoleManager` determines **what that operator is allowed to do**.
+
+`HookGovernance` enforces those permissions against **real Uniswap v4 pool behavior**.
+
+---
+
+## Status
+
+**ETHOnline 2026 hackathon project — active development**
+
+Current milestone:
+
+**Native ETH / Hackathon MockUSDC → Uniswap v4 PoolManager → HookGovernance → PoolId → ENS resource**
 
