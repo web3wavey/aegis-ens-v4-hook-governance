@@ -77,13 +77,13 @@ Charlie can have a valid ENS identity while having **no pool authority**.
 
 Aegis separates project governance from operational access.
 
-| Identity                       | Operate Pool  | Add / Remove Operators   | Ultimate Control  |
-| ------------------------------ | -----------:  | ---------------------:   | ---------------:  |
-| `project.eth`                  |     Optional  |                       ✅ |                ✅ |
-| `operator.project.eth`         |     Optional  |                       ✅ |                ❌ |
-| `alice.operator.project.eth`   |            ✅ |                       ❌ |                ❌ |
-| `bob.operator.project.eth`     |            ✅ |                       ❌ |                ❌ |
-| `charlie.operator.project.eth` |            ❌ |                       ❌ |                ❌ |
+| Identity                       | Operate Pool | Add / Remove Operators | Ultimate Control |
+| ------------------------------ | -----------: | ---------------------: | ---------------: |
+| `project.eth`                  |     Optional |                      ✅ |                ✅ |
+| `operator.project.eth`         |     Optional |                      ✅ |                ❌ |
+| `alice.operator.project.eth`   |            ✅ |                      ❌ |                ❌ |
+| `bob.operator.project.eth`     |            ✅ |                      ❌ |                ❌ |
+| `charlie.operator.project.eth` |            ❌ |                      ❌ |                ❌ |
 
 Individual pool operators cannot:
 
@@ -404,7 +404,7 @@ A protocol can delegate day-to-day pool operations to an operations team while r
 
 ### Security Teams
 
-Authorized security operators can pause affected pools during an incident without receiving permission to modify the protocol's governance hierarchy.
+Authorised security operators can pause affected pools during an incident without receiving permission to modify the protocol's governance hierarchy.
 
 ### Liquidity Management Teams
 
